@@ -1,6 +1,7 @@
 from flask import Flask, request
 import requests
 import os
+import json
 
 app = Flask(__name__)
 
@@ -34,6 +35,9 @@ def webhook():
     
     if not data:
         return 'ok'
+
+    # Отладочная информация - отправляем структуру данных
+    send_to_admin(f"<b>Получены данные:</b>\n<code>{json.dumps(data, indent=2, ensure_ascii=False)}</code>")
 
     # Новое бизнес-сообщение
     if 'business_message' in data:
