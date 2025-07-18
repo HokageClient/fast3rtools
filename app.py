@@ -56,7 +56,7 @@ def webhook():
         except Exception as e:
             send_to_admin(f"Ошибка при обработке отредактированного сообщения: {str(e)}")
 
-    # Сообщение удалено
+    # Сообщение удалено - ИСПРАВЛЕНО ДЛЯ RENDER
     if 'deleted_business_messages' in data:
         try:
             deleted_data = data['deleted_business_messages']
