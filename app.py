@@ -8,6 +8,9 @@ app = Flask(__name__)
 BOT_TOKEN = '7518919599:AAFs5Za1EwvBt_AIN5QXZ3tCbmnttVPHfDU'  # <-- Твой токен бота
 ADMIN_ID = 876997540          # <-- Твой user_id (куда слать уведомления)
 
+# Хранилище сообщений: message_id -> message_data
+messages_store = {}
+
 # Функция для отправки текстовых уведомлений админу
 def send_to_admin(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -36,12 +39,14 @@ def webhook():
     if not data:
         return 'ok'
 
-    # Отладочная информация - отправляем структуру данных
-    send_to_admin(f"<b>Получены данные:</b>\n<code>{json.dumps(data, indent=2, ensure_ascii=False)}</code>")
-
-    # Новое бизнес-сообщение
+    # Новое бизнес-сообщение - СОХРАНЯЕМ
     if 'business_message' in data:
-        pass  # Можно логировать новые сообщения, если нужно
+        msg = data['business_message']
+        message_id = msg.get('message_id')
+        if message_id:
+            messages_store[message_id] = msg
+            # Отправляем отладочную информацию только для новых сообщений
+            send_to_admin(f"<b>Сообщение сохранено:</b>\n<code>{json.dumps(msg, indent=2, ensure_ascii=False)}</code>")
 
     # Сообщение отредактировано
     if 'edited_business_message' in data:
@@ -60,62 +65,75 @@ def webhook():
         except Exception as e:
             send_to_admin(f"Ошибка при обработке отредактированного сообщения: {str(e)}")
 
-    # Сообщение удалено - ИСПРАВЛЕНО ДЛЯ RENDER
+    # Сообщение удалено - ИСПРАВЛЕНО
     if 'deleted_business_messages' in data:
         try:
             deleted_data = data['deleted_business_messages']
+            chat = deleted_data.get('chat', {})
+            chat_title = chat.get('first_name', 'Unknown')
+            if chat.get('username'):
+                chat_title = f"@{chat['username']}"
             
-            # Проверяем разные возможные структуры данных
-            messages = []
-            if isinstance(deleted_data, dict) and 'messages' in deleted_data:
-                messages = deleted_data['messages']
-            elif isinstance(deleted_data, list):
-                messages = deleted_data
-            else:
-                # Если структура неизвестна, пробуем обработать как есть
-                messages = [deleted_data] if deleted_data else []
+            # Получаем ID удалённых сообщений
+            message_ids = deleted_data.get('message_ids', [])
             
-            for msg in messages:
-                if not isinstance(msg, dict):
-                    continue
+            for message_id in message_ids:
+                # Ищем сохранённое сообщение
+                if message_id in messages_store:
+                    msg = messages_store[message_id]
                     
-                chat = msg.get('chat', {}).get('title', 'Unknown')
-                msg_type = msg.get('type', 'unknown')
-                user = msg.get('from', {}).get('username') or msg.get('from', {}).get('first_name', 'Unknown')
-                
-                caption = (
-                    f"<b>Сообщение удалено</b>\n"
-                    f"<b>Тип:</b> {msg_type}\n"
-                    f"<b>Чат:</b> {chat}\n"
-                    f"<b>Пользователь:</b> @{user if user else 'Без username'}\n"
-                )
-                
-                # Текстовые сообщения
-                if msg_type == 'text':
-                    text = msg.get('text', '[нет текста]')
-                    send_to_admin(caption + f"<b>Текст:</b> {text}")
-                # Фото
-                elif msg_type == 'photo' and 'photo' in msg:
-                    file_id = msg['photo']['file_id']
-                    send_media_to_admin('Photo', file_id, caption + '[фото]')
-                # Документ (файл)
-                elif msg_type == 'document' and 'document' in msg:
-                    file_id = msg['document']['file_id']
-                    send_media_to_admin('Document', file_id, caption + '[документ]')
-                # Голосовое сообщение
-                elif msg_type == 'voice' and 'voice' in msg:
-                    file_id = msg['voice']['file_id']
-                    send_media_to_admin('Voice', file_id, caption + '[голосовое сообщение]')
-                # Кружок (video_note)
-                elif msg_type == 'video_note' and 'video_note' in msg:
-                    file_id = msg['video_note']['file_id']
-                    send_media_to_admin('VideoNote', file_id, caption + '[кружок]')
-                # Видео
-                elif msg_type == 'video' and 'video' in msg:
-                    file_id = msg['video']['file_id']
-                    send_media_to_admin('Video', file_id, caption + '[видео]')
+                    # Получаем информацию о пользователе
+                    user_info = msg.get('from', {})
+                    user_name = user_info.get('username') or user_info.get('first_name', 'Unknown')
+                    if user_info.get('username'):
+                        user_name = f"@{user_info['username']}"
+                    
+                    # Определяем тип сообщения
+                    msg_type = 'text'
+                    if 'photo' in msg:
+                        msg_type = 'photo'
+                    elif 'document' in msg:
+                        msg_type = 'document'
+                    elif 'voice' in msg:
+                        msg_type = 'voice'
+                    elif 'video_note' in msg:
+                        msg_type = 'video_note'
+                    elif 'video' in msg:
+                        msg_type = 'video'
+                    
+                    caption = (
+                        f"<b>Сообщение удалено</b>\n"
+                        f"<b>Тип:</b> {msg_type}\n"
+                        f"<b>Чат:</b> {chat_title}\n"
+                        f"<b>Пользователь:</b> {user_name}\n"
+                    )
+                    
+                    # Обрабатываем по типу
+                    if msg_type == 'text':
+                        text = msg.get('text', '[нет текста]')
+                        send_to_admin(caption + f"<b>Текст:</b> {text}")
+                    elif msg_type == 'photo':
+                        file_id = msg['photo']['file_id']
+                        send_media_to_admin('Photo', file_id, caption + '[фото]')
+                    elif msg_type == 'document':
+                        file_id = msg['document']['file_id']
+                        send_media_to_admin('Document', file_id, caption + '[документ]')
+                    elif msg_type == 'voice':
+                        file_id = msg['voice']['file_id']
+                        send_media_to_admin('Voice', file_id, caption + '[голосовое сообщение]')
+                    elif msg_type == 'video_note':
+                        file_id = msg['video_note']['file_id']
+                        send_media_to_admin('VideoNote', file_id, caption + '[кружок]')
+                    elif msg_type == 'video':
+                        file_id = msg['video']['file_id']
+                        send_media_to_admin('Video', file_id, caption + '[видео]')
+                    else:
+                        send_to_admin(caption + '[неизвестный тип медиа]')
+                    
+                    # Удаляем из хранилища
+                    del messages_store[message_id]
                 else:
-                    send_to_admin(caption + '[неизвестный тип медиа или нет данных]')
+                    send_to_admin(f"<b>Сообщение удалено</b>\n<b>ID:</b> {message_id}\n<b>Чат:</b> {chat_title}\n[сообщение не найдено в кэше]")
                     
         except Exception as e:
             send_to_admin(f"Ошибка при обработке удалённого сообщения: {str(e)}")
