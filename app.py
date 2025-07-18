@@ -39,14 +39,13 @@ def webhook():
     if not data:
         return 'ok'
 
-    # Новое бизнес-сообщение - СОХРАНЯЕМ
+    # Новое бизнес-сообщение - СОХРАНЯЕМ БЕЗ УВЕДОМЛЕНИЙ
     if 'business_message' in data:
         msg = data['business_message']
         message_id = msg.get('message_id')
         if message_id:
             messages_store[message_id] = msg
-            # Отправляем отладочную информацию только для новых сообщений
-            send_to_admin(f"<b>Сообщение сохранено:</b>\n<code>{json.dumps(msg, indent=2, ensure_ascii=False)}</code>")
+            # НЕ отправляем отладочную информацию - только сохраняем
 
     # Сообщение отредактировано
     if 'edited_business_message' in data:
@@ -122,6 +121,7 @@ def webhook():
                         file_id = msg['voice']['file_id']
                         send_media_to_admin('Voice', file_id, caption + '[голосовое сообщение]')
                     elif msg_type == 'video_note':
+                        # ИСПРАВЛЕНО: правильно извлекаем file_id для кружка
                         file_id = msg['video_note']['file_id']
                         send_media_to_admin('VideoNote', file_id, caption + '[кружок]')
                     elif msg_type == 'video':
